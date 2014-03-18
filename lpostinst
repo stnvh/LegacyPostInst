@@ -1,0 +1,98 @@
+#!/bin/bash
+echo "LegacyPostInst - 0.0.1b"
+echo ""
+echo "a root password is required to perform the operations in this bash script, please enter your password when required."
+
+sudo rm -R /tmp/mvpinst >> /dev/null 2>&1
+
+echo "backing up required files..."
+
+sudo mkdir /tmp/mvpinst
+sudo cp -p /System/Library/CoreServices/boot.efi /tmp/mvpinst/boot.efi
+sudo cp -Rp /System/Library/Extensions/AppleHDA.kext /tmp/mvpinst/AppleHDA.kext
+sudo cp -Rp /System/Library/Extensions/IOAudioFamily.kext /tmp/mvpinst/IOAudioFamily.kext
+sudo cp -Rp /System/Library/CoreServices/InstallableMachines.plist /tmp/mvpinst/InstallableMachines.plist
+sudo cp -Rp /System/Library/CoreServices/PlatformSupport.plist /tmp/mvpinst/PlatformSupport.plist
+
+if [[ ! -d /tmp/mvpinst ]]; then
+	echo "error creating tmp directory, did you enter the correct root password?"
+	exit
+fi
+if [[ ! -f /tmp/mvpinst/boot.efi ]] || [[ ! -d /tmp/mvpinst/AppleHDA.kext ]] || [[ ! -d /tmp/mvpinst/IOAudioFamily.kext ]] || [[ ! -f /tmp/mvpinst/PlatformSupport.plist ]]; then
+	echo "Files missing from tmp, did you have them in the first place?"
+	exit
+fi
+
+
+echo "Now install updates via instructions (https://github.com/stnvh/LegacyPostInst), and press [enter] when finished, or [c] to cancel"
+echo -n ">"
+read opt
+
+if [[ $opt == "c" ]]; then
+	echo "cleaning up..."
+	sudo rm -R /tmp/mvpinst
+	exit
+fi
+
+CSefi=$(md5 -q /System/Library/CoreServices/boot.efi)
+usrefi=$(md5 -q /usr/standalone/i386/boot.efi)
+Oldefi=$(md5 -q /tmp/mvpinst/boot.efi)
+
+if [[ ! $CSefi == $Oldefi ]]; then
+	echo "diff in CoreServices boot.efi, replacing with old one..."
+	sudo chflags nouchg /System/Library/CoreServices/boot.efi
+	sudo rm /System/Library/CoreServices/boot.efi
+	sudo cp -p /tmp/mvpinst/boot.efi /System/Library/CoreServices/boot.efi
+fi
+if [[ ! $usrefi == $Oldefi ]]; then
+	echo "diff in i386 boot.efi, replacing with old one..."
+	sudo chflags nouchg /usr/standalone/i386/boot.efi
+	sudo rm /usr/standalone/i386/boot.efi
+	sudo cp -p /tmp/mvpinst/boot.efi /usr/standalone/i386/boot.efi
+fi
+
+HDA=$(md5 -q /System/Library/Extensions/AppleHDA.kext/Contents/MacOS/AppleHDA)
+IOAudioFamily=$(md5 -q /System/Library/Extensions/IOAudioFamily.kext/Contents/MacOS/IOAudioFamily)
+OldHDA=$(md5 -q /tmp/mvpinst/AppleHDA.kext/Contents/MacOS/AppleHDA)
+OldIOAudioFamily=$(md5 -q /tmp/mvpinst/IOAudioFamily.kext/Contents/MacOS/IOAudioFamily)
+
+if [[ ! $HDA == $OldHDA ]]; then
+	echo "diff in AppleHDA, replacing with old one..."
+	kextUpdated="YES"
+	sudo rm -R /System/Library/Extensions/AppleHDA.kext
+	sudo cp -Rp /tmp/mvpinst/AppleHDA.kext /System/Library/Extensions/AppleHDA.kext
+fi
+if [[ ! $IOAudioFamily == $OldIOAudioFamily ]]; then
+	echo "diff in IOAudioFamily, replacing with old one..."
+	kextUpdated="YES"
+	sudo rm -R /System/Library/Extensions/IOAudioFamily.kext
+	sudo cp -Rp /tmp/mvpinst/IOAudioFamily.kext /System/Library/Extensions/IOAudioFamily.kext
+fi
+
+if [[ $kextUpdated ]]; then
+	echo "updaing caches..."
+	sudo rm /System/Library/Caches/com.apple.kext.caches/Startup/kernelcache
+	sudo touch /System/Library/Extensions
+	sudo kextcache -update-volume /
+fi
+
+InstallableMachines=$(md5 -q /System/Library/CoreServices/InstallableMachines.plist)
+PlatformSupport=$(md5 -q /System/Library/CoreServices/PlatformSupport.plist)
+OldInstallableMachines=$(md5 -q /tmp/mvpinst/InstallableMachines.plist)
+OldPlatformSupport=$(md5 -q /tmp/mvpinst/PlatformSupport.plist)
+
+if [[ ! $InstallableMachines == $OldInstallableMachines ]]; then
+	echo "diff in InstallableMachines.plist"
+	sudo rm /System/Library/CoreServices/InstallableMachines.plist
+	sudo cp -p /tmp/mvpinst/InstallableMachines.plist /System/Library/CoreServices/InstallableMachines.plist
+fi
+if [[ ! $PlatformSupport == $OldPlatformSupport ]]; then
+	echo "diff in PlatformSupport.plist"
+	sudo rm /System/Library/CoreServices/PlatformSupport.plist
+	sudo cp -p /tmp/mvpinst/PlatformSupport.plist /System/Library/CoreServices/PlatformSupport.plist
+fi
+
+echo "cleaning up..."
+echo ""
+echo "LegacyPostInst - Done!"
+sudo rm -R /tmp/mvpinst
